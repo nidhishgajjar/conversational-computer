@@ -11,6 +11,10 @@ from gi.repository import Gtk, Gdk, GLib
 import sys
 import os
 
+# Set display if not set
+if 'DISPLAY' not in os.environ:
+    os.environ['DISPLAY'] = ':0'
+
 class SPOCInterface(Gtk.Window):
     def __init__(self):
         super().__init__(title="SPOC")
@@ -224,6 +228,12 @@ class SPOCInterface(Gtk.Window):
 
 def main():
     """Main entry point"""
+    # Check if GTK can initialize
+    if not Gtk.init_check()[0]:
+        print("Error: Cannot initialize GTK. Make sure X is running.")
+        print("DISPLAY:", os.environ.get('DISPLAY', 'not set'))
+        sys.exit(1)
+    
     app = SPOCInterface()
     app.show_all()
     Gtk.main()
