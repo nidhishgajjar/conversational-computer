@@ -2,6 +2,7 @@
 //! Direct framebuffer approach for simplicity
 
 mod font;
+mod input;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write, Read};
@@ -244,38 +245,78 @@ impl Canvas {
         let input_text = self.input_text.clone();
         self.draw_text(&input_text, text_x, bar_y + 22, 255, 255, 255, 2);
         
-        // Draw cursor
+        // Draw cursor (vertical bar like modern inputs)
         if self.cursor_visible {
             let cursor_x = text_x + input_text.len() * (font::CHAR_WIDTH * 2 + 2);
-            self.draw_rect(cursor_x, bar_y + 22, 2, 16, 255, 255, 255);
+            // Draw a thin vertical line
+            for y in 0..18 {
+                self.set_pixel(cursor_x, bar_y + 21 + y, 255, 255, 255);
+                self.set_pixel(cursor_x + 1, bar_y + 21 + y, 255, 255, 255);
+            }
         }
     }
 
     /// Render frame to actual framebuffer
     fn present(&mut self) {
-        // Write to framebuffer
-        if let Err(e) = self.fb_file.write_all(&self.framebuffer) {
-            eprintln!("Failed to write to framebuffer: {}", e);
+        // Seek to beginning of framebuffer
+        use std::io::Seek;
+        let _ = self.fb_file.seek(std::io::SeekFrom::Start(0));
+        
+        // Write in chunks to avoid "no space" error
+        let chunk_size = 4096; // Write 4KB at a time
+        for chunk in self.framebuffer.chunks(chunk_size) {
+            if let Err(e) = self.fb_file.write(chunk) {
+                eprintln!("Failed to write to framebuffer: {}", e);
+                break;
+            }
         }
         let _ = self.fb_file.flush();
     }
 
     /// Main run loop
-    fn run(&mut self) {
+    fn run(&mut self) -> io::Result<()> {
         println!("Canvas Compositor Started");
         println!("Resolution: {}x{}", self.width, self.height);
-        println!("Press Ctrl+C to exit");
+        println!("Press ESC to exit");
         
-        // Add sample text to show it's working
-        self.input_text = "Hello, Canvas!".to_string();
+        // Clear initial text
+        self.input_text.clear();
+        
+        // Setup input handler
+        let input_handler = input::InputHandler::new()?;
         
         // Simple event loop
         loop {
+            // Handle input
+            if let Some(event) = input_handler.poll() {
+                match event {
+                    input::InputEvent::Char(ch) => {
+                        self.input_text.push(ch);
+                        self.cursor_visible = true;
+                        self.cursor_blink_counter = 0;
+                    }
+                    input::InputEvent::Backspace => {
+                        self.input_text.pop();
+                        self.cursor_visible = true;
+                        self.cursor_blink_counter = 0;
+                    }
+                    input::InputEvent::Enter => {
+                        // For now, just clear the input
+                        self.input_text.clear();
+                    }
+                    input::InputEvent::Escape => {
+                        println!("\nExiting Canvas...");
+                        break;
+                    }
+                }
+            }
+            
             // Clear to dark blue-gray background
             self.clear(20, 25, 35);
             
             // Draw title at top
             self.draw_text("CANVAS - Conversational Computer", 20, 20, 100, 150, 200, 2);
+            self.draw_text("Type and press Enter. ESC to exit.", 20, 45, 80, 120, 160, 1);
             
             // Update cursor blink
             self.cursor_blink_counter += 1;
@@ -292,6 +333,8 @@ impl Canvas {
             
             std::thread::sleep(std::time::Duration::from_millis(16)); // 60 FPS
         }
+        
+        Ok(())
     }
 }
 
@@ -308,7 +351,10 @@ fn main() {
     // Create and run Canvas
     match Canvas::new() {
         Ok(mut canvas) => {
-            canvas.run();
+            if let Err(e) = canvas.run() {
+                eprintln!("Canvas error: {}", e);
+                std::process::exit(1);
+            }
         }
         Err(e) => {
             eprintln!("Failed to initialize Canvas: {}", e);
