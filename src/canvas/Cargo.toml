@@ -6,8 +6,7 @@ authors = ["nidhishgajjar <hacker@scigic.com>"]
 description = "Canvas - Minimal Wayland compositor for Conversational Computer"
 
 [dependencies]
-# Smithay will be added when we implement full compositor
-# For now, keeping it minimal to test the structure
+libc = "0.2"
 
 [profile.release]
 lto = true
