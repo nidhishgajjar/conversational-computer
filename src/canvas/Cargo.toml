@@ -1,0 +1,29 @@
+[package]
+name = "canvas"
+version = "0.1.0"
+edition = "2021"
+authors = ["nidhishgajjar <hacker@scigic.com>"]
+description = "Canvas - Minimal Wayland compositor for Conversational Computer"
+
+[dependencies]
+smithay = { version = "0.3", default-features = false, features = [
+    "backend_drm",
+    "backend_libinput", 
+    "backend_udev",
+    "backend_winit",
+    "renderer_glow",
+    "wayland_frontend",
+    "xwayland",
+    "desktop"
+]}
+slog = "2.7"
+slog-term = "2.9"
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+calloop = "0.12"
+xkbcommon = "0.7"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
