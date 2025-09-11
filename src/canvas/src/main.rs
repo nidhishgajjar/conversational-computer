@@ -1,11 +1,15 @@
 //! Canvas - Minimal Compositor for Conversational Computer
 //! Direct framebuffer approach for simplicity
 
+mod font;
+
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write, Read};
 use std::os::unix::io::AsRawFd;
 use std::mem;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 const FB_PATH: &str = "/dev/fb0";
 
@@ -58,6 +62,9 @@ struct Canvas {
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
+    input_text: String,
+    cursor_visible: bool,
+    cursor_blink_counter: u32,
 }
 
 impl Canvas {
@@ -100,6 +107,9 @@ impl Canvas {
             width,
             height,
             bytes_per_pixel,
+            input_text: String::new(),
+            cursor_visible: true,
+            cursor_blink_counter: 0,
         })
     }
 
@@ -118,6 +128,9 @@ impl Canvas {
             width: 1920,
             height: 1080,
             bytes_per_pixel: 4,
+            input_text: String::new(),
+            cursor_visible: true,
+            cursor_blink_counter: 0,
         })
     }
 
@@ -161,6 +174,37 @@ impl Canvas {
         }
     }
 
+    /// Draw a character at position
+    fn draw_char(&mut self, ch: char, x: usize, y: usize, r: u8, g: u8, b: u8, scale: usize) {
+        let bitmap = font::get_char(ch);
+        
+        for row in 0..font::CHAR_HEIGHT {
+            for col in 0..font::CHAR_WIDTH {
+                if bitmap[row] & (0x80 >> col) != 0 {
+                    // Draw scaled pixel
+                    for dy in 0..scale {
+                        for dx in 0..scale {
+                            self.set_pixel(
+                                x + col * scale + dx,
+                                y + row * scale + dy,
+                                r, g, b
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Draw text at position
+    fn draw_text(&mut self, text: &str, x: usize, y: usize, r: u8, g: u8, b: u8, scale: usize) {
+        let mut current_x = x;
+        for ch in text.chars() {
+            self.draw_char(ch, current_x, y, r, g, b, scale);
+            current_x += font::CHAR_WIDTH * scale + scale; // Add spacing
+        }
+    }
+
     /// Draw SPOC input bar
     fn draw_input_bar(&mut self) {
         // Draw input bar background at bottom
@@ -192,8 +236,19 @@ impl Canvas {
             }
         }
         
-        // Draw "SPOC>" prompt (simplified - just a colored box for now)
-        self.draw_rect(bar_x + 10, bar_y + 20, 50, 20, 150, 150, 150);
+        // Draw "SPOC>" prompt
+        self.draw_text("SPOC>", bar_x + 15, bar_y + 22, 100, 200, 255, 2);
+        
+        // Draw input text
+        let text_x = bar_x + 90;
+        let input_text = self.input_text.clone();
+        self.draw_text(&input_text, text_x, bar_y + 22, 255, 255, 255, 2);
+        
+        // Draw cursor
+        if self.cursor_visible {
+            let cursor_x = text_x + input_text.len() * (font::CHAR_WIDTH * 2 + 2);
+            self.draw_rect(cursor_x, bar_y + 22, 2, 16, 255, 255, 255);
+        }
     }
 
     /// Render frame to actual framebuffer
@@ -211,21 +266,31 @@ impl Canvas {
         println!("Resolution: {}x{}", self.width, self.height);
         println!("Press Ctrl+C to exit");
         
-        // Clear to dark blue-gray background
-        self.clear(20, 25, 35);
-        
-        // Draw SPOC interface
-        self.draw_input_bar();
-        
-        // Present frame
-        self.present();
+        // Add sample text to show it's working
+        self.input_text = "Hello, Canvas!".to_string();
         
         // Simple event loop
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(16)); // 60 FPS
+            // Clear to dark blue-gray background
+            self.clear(20, 25, 35);
             
-            // In real implementation, we'd handle input events here
-            // For now, just keep running until Ctrl+C
+            // Draw title at top
+            self.draw_text("CANVAS - Conversational Computer", 20, 20, 100, 150, 200, 2);
+            
+            // Update cursor blink
+            self.cursor_blink_counter += 1;
+            if self.cursor_blink_counter > 30 {
+                self.cursor_visible = !self.cursor_visible;
+                self.cursor_blink_counter = 0;
+            }
+            
+            // Draw SPOC interface
+            self.draw_input_bar();
+            
+            // Present frame
+            self.present();
+            
+            std::thread::sleep(std::time::Duration::from_millis(16)); // 60 FPS
         }
     }
 }
