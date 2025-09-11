@@ -32,8 +32,10 @@ impl InputHandler {
             libc::tcsetattr(stdin_fd, libc::TCSANOW, &raw);
         }
         
-        // Hide cursor
-        print!("\x1b[?25l");
+        // Hide cursor multiple ways to ensure it works
+        print!("\x1b[?25l"); // ANSI hide cursor
+        print!("\x1b[?1c");  // Set cursor to invisible
+        let _ = std::io::Write::flush(&mut std::io::stdout());
         
         let (sender, receiver) = channel();
         

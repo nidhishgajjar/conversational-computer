@@ -5,7 +5,7 @@ mod font;
 mod input;
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write, Read};
+use std::io::{self, Write, Read, stdout};
 use std::os::unix::io::AsRawFd;
 use std::mem;
 use std::ptr;
@@ -279,6 +279,18 @@ impl Canvas {
         println!("Resolution: {}x{}", self.width, self.height);
         println!("Press ESC to exit");
         
+        // Hide cursor via multiple methods
+        print!("\x1b[?25l"); // Hide cursor
+        print!("\x1b[2J");   // Clear screen
+        print!("\x1b[H");    // Move to home
+        let _ = stdout().flush();
+        
+        // Also try to write to tty directly
+        if let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open("/dev/tty") {
+            let _ = tty.write_all(b"\x1b[?25l");
+            let _ = tty.flush();
+        }
+        
         // Clear initial text
         self.input_text.clear();
         
@@ -305,6 +317,9 @@ impl Canvas {
                         self.input_text.clear();
                     }
                     input::InputEvent::Escape => {
+                        // Restore cursor before exit
+                        print!("\x1b[?25h");
+                        let _ = stdout().flush();
                         println!("\nExiting Canvas...");
                         break;
                     }
