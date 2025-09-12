@@ -1,0 +1,12 @@
+/home/aios/aios/src/canvas_v2/target/debug/deps/andrew-7274cf99637eaa7c.d: /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/lib.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/line.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/mod.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/rectangle.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/mod.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/fontconfig.rs
+
+/home/aios/aios/src/canvas_v2/target/debug/deps/libandrew-7274cf99637eaa7c.rlib: /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/lib.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/line.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/mod.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/rectangle.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/mod.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/fontconfig.rs
+
+/home/aios/aios/src/canvas_v2/target/debug/deps/libandrew-7274cf99637eaa7c.rmeta: /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/lib.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/line.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/mod.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/rectangle.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/mod.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/fontconfig.rs
+
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/lib.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/line.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/mod.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/shapes/rectangle.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/mod.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/andrew-0.3.1/src/text/fontconfig.rs:

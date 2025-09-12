@@ -1,0 +1,12 @@
+/home/aios/aios/src/canvas_v2/target/debug/deps/drm_ffi-962259ad45494166.d: /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/lib.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/utils.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/gem.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/ioctl.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/mode.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/syncobj.rs
+
+/home/aios/aios/src/canvas_v2/target/debug/deps/libdrm_ffi-962259ad45494166.rlib: /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/lib.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/utils.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/gem.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/ioctl.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/mode.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/syncobj.rs
+
+/home/aios/aios/src/canvas_v2/target/debug/deps/libdrm_ffi-962259ad45494166.rmeta: /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/lib.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/utils.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/gem.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/ioctl.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/mode.rs /home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/syncobj.rs
+
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/lib.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/utils.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/gem.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/ioctl.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/mode.rs:
+/home/aios/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/drm-ffi-0.8.0/src/syncobj.rs:
