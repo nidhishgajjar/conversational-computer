@@ -5,10 +5,37 @@ edition = "2021"
 authors = ["nidhishgajjar <hacker@scigic.com>"]
 description = "Canvas - Minimal Wayland compositor for Conversational Computer"
 
+[[bin]]
+name = "canvas-smithay"
+path = "src/main_smithay.rs"
+
+[[bin]]
+name = "canvas-drm"
+path = "src/main_drm.rs"
+
 [dependencies]
+# Core dependencies
 libc = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# Smithay - Pure Wayland compositor toolkit (not a framework)
+smithay = "0.7.0"
+smithay-drm-extras = "0.1"
+
+# Wayland dependencies
+wayland-server = "0.31"
+wayland-protocols = { version = "0.32", features = ["server", "staging", "unstable"] }
+
+# Additional dependencies for DRM/libinput
+nix = { version = "0.29", features = ["fs"] }
+
+# Event loop
+calloop = "0.13"
+
+# Logging  
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = true
