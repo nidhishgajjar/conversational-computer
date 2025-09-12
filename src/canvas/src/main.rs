@@ -3,6 +3,7 @@
 
 mod font;
 mod input;
+mod spoc_client;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write, Read, stdout};
@@ -20,6 +21,7 @@ enum BlockRole {
     User,
     Assistant,
     System,
+    Terminal,  // New: for command output
 }
 
 /// Conversation block
@@ -29,6 +31,7 @@ struct Block {
     role: BlockRole,
     timestamp: std::time::SystemTime,
     height: usize,  // Calculated pixel height
+    command: Option<String>,  // For terminal blocks
 }
 
 /// Framebuffer information structure
@@ -286,14 +289,25 @@ impl Canvas {
 
     /// Add a new block to conversation
     fn add_block(&mut self, text: String, role: BlockRole) {
+        self.add_block_with_command(text, role, None);
+    }
+    
+    /// Add a new block with optional command (for terminal blocks)
+    fn add_block_with_command(&mut self, text: String, role: BlockRole, command: Option<String>) {
         let max_width = 600.min(self.width - 80) - 20; // Block width minus padding
-        let height = self.calculate_text_height(&text, max_width, 2) + 20; // Add padding
+        let mut height = self.calculate_text_height(&text, max_width, 2) + 20; // Add padding
+        
+        // Terminal blocks need extra height for command line
+        if matches!(role, BlockRole::Terminal) && command.is_some() {
+            height += 20; // Extra space for command display
+        }
         
         let block = Block {
             text,
             role,
             timestamp: std::time::SystemTime::now(),
             height,
+            command,
         };
         
         self.blocks.push(block);
@@ -328,6 +342,7 @@ impl Canvas {
                 BlockRole::User => (40, 45, 55),      // Slightly blue
                 BlockRole::Assistant => (35, 45, 40),  // Slightly green
                 BlockRole::System => (35, 35, 40),     // Gray
+                BlockRole::Terminal => (25, 30, 35),   // Dark for terminal
             };
             
             // Draw block background
@@ -345,16 +360,29 @@ impl Canvas {
                 }
             }
             
-            // Draw role label
+            // Draw role label and command for terminal blocks
             let role_text = match block.role {
                 BlockRole::User => "You",
                 BlockRole::Assistant => "SPOC",
                 BlockRole::System => "System",
+                BlockRole::Terminal => "Terminal",
             };
             self.draw_text(role_text, block_x + 10, current_y + 5, 150, 170, 190, 1);
             
-            // Draw text content
-            self.draw_text_wrapped(&block.text, block_x + 10, current_y + 20, block_width - 20, 220, 230, 240, 2);
+            // For terminal blocks, show the command
+            if matches!(block.role, BlockRole::Terminal) {
+                if let Some(ref cmd) = block.command {
+                    let cmd_display = format!("> {}", cmd);
+                    self.draw_text(&cmd_display, block_x + 10, current_y + 18, 100, 200, 100, 1);
+                    // Draw output below command
+                    self.draw_text_wrapped(&block.text, block_x + 10, current_y + 32, block_width - 20, 200, 210, 220, 1);
+                } else {
+                    self.draw_text_wrapped(&block.text, block_x + 10, current_y + 20, block_width - 20, 200, 210, 220, 1);
+                }
+            } else {
+                self.draw_text_wrapped(&block.text, block_x + 10, current_y + 20, block_width - 20, 220, 230, 240, 2);
+            }
+            
         }
         
         // Draw scroll indicator if needed
@@ -476,21 +504,41 @@ impl Canvas {
                             let user_text = self.input_text.clone();
                             self.add_block(user_text.clone(), BlockRole::User);
                             
-                            // Basic conductor response for testing
-                            let response = if user_text.to_lowercase().contains("hello") {
-                                "Hello! I'm SPOC, your conversational computer conductor. How can I help you today?".to_string()
-                            } else if user_text.to_lowercase().contains("help") {
-                                "I can help you with various tasks. Try asking me questions or giving me commands.".to_string()
-                            } else if user_text.to_lowercase().contains("time") {
-                                format!("The current system time is: {:?}", std::time::SystemTime::now())
-                            } else if user_text.to_lowercase().contains("clear") {
-                                self.blocks.clear();
-                                "Conversation cleared.".to_string()
-                            } else {
-                                format!("You said: '{}'. I'm a basic conductor for now, more capabilities coming soon!", user_text)
-                            };
+                            // Query SPOC conductor
+                            match spoc_client::SPOCClient::query(&user_text) {
+                                Ok(blocks) => {
+                                    // Process each response block
+                                    for block in blocks {
+                                        match block.block_type.as_str() {
+                                            "terminal" => {
+                                                // Terminal block with command and output
+                                                let output = block.output.unwrap_or_default();
+                                                let command = block.command;
+                                                self.add_block_with_command(output, BlockRole::Terminal, command);
+                                            }
+                                            "system" => {
+                                                let content = block.content.unwrap_or_default();
+                                                self.add_block(content, BlockRole::System);
+                                            }
+                                            _ => {
+                                                // Default to assistant text
+                                                let content = block.content.unwrap_or_default();
+                                                self.add_block(content, BlockRole::Assistant);
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    // Fallback to basic responses if SPOC not available
+                                    let response = if e.contains("Is the server running?") {
+                                        "SPOC conductor not running. Start with: python src/conductor/spoc_server.py".to_string()
+                                    } else {
+                                        format!("Error: {}", e)
+                                    };
+                                    self.add_block(response, BlockRole::System);
+                                }
+                            }
                             
-                            self.add_block(response, BlockRole::Assistant);
                             self.input_text.clear();
                         }
                     }
