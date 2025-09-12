@@ -205,23 +205,34 @@ aios/
 - **Exploration**: Still discovering requirements
 - **Future**: Will add tests once core is stable
 
+## Current Approach - Pragmatic Architecture
+
+**See [PRAGMATIC_ARCHITECTURE.md](./PRAGMATIC_ARCHITECTURE.md) for detailed approach**
+
+We've evolved from pure framebuffer to a pragmatic hybrid:
+- **Build** our core innovation (conversation paradigm)
+- **Use** proven libraries for solved problems (rendering, web, editing)
+- **Ship** in 3 months, not 3 years
+
 ## Future Considerations
 
-### GPU Acceleration
-- Move from framebuffer to OpenGL/Vulkan
-- Hardware acceleration for text rendering
-- Smooth animations
+### Immediate (Month 1)
+- Integrate Skia or wgpu for GPU rendering
+- WebKitGTK for web blocks
+- Xi-rope or Ropey for text editing
+- Basic block SDK
 
-### Wayland Compositor
-- Full Wayland protocol support
-- Other applications can run if needed
-- Better hardware integration
+### Short-term (Month 2-3)
+- Hybrid blocks (native UI + web APIs)
+- Smooth transitions and animations
+- Developer SDK and block store
+- Example blocks (Spotify, Slack, Editor)
 
-### AI Integration
-- LLM backend selection
-- Local vs cloud processing
-- Context management
-- Privacy considerations
+### Long-term
+- Custom browser engine (only if needed)
+- Advanced AI integration
+- Voice and gesture input
+- Multi-device synchronization
 
 ### Input Methods
 - Voice input

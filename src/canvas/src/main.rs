@@ -2,8 +2,11 @@
 //! Direct framebuffer approach for simplicity
 
 mod font;
-mod input;
+mod improved_input;
+mod text_field;
 mod spoc_client;
+
+use improved_input as input;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write, Read, stdout};
@@ -83,11 +86,13 @@ struct Canvas {
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
-    input_text: String,
+    input_field: text_field::TextField,
     cursor_visible: bool,
     cursor_blink_counter: u32,
     blocks: Vec<Block>,
     scroll_offset: usize,
+    needs_redraw: bool,  // Only redraw when needed
+    last_frame_time: std::time::Instant,
 }
 
 impl Canvas {
@@ -123,6 +128,10 @@ impl Canvas {
         let bytes_per_pixel = (screen_info.bits_per_pixel / 8) as usize;
         let framebuffer = vec![0u8; width * height * bytes_per_pixel];
 
+        // Calculate input field width in characters (assuming 8px font with 2x scale)
+        let char_width = (font::CHAR_WIDTH * 2 + 2) as usize;
+        let input_width_chars = (600.min(width - 100)) / char_width;
+
         Ok(Canvas {
             fb_file,
             screen_info,
@@ -130,11 +139,13 @@ impl Canvas {
             width,
             height,
             bytes_per_pixel,
-            input_text: String::new(),
+            input_field: text_field::TextField::new(input_width_chars, 5), // Max 5 lines
             cursor_visible: true,
             cursor_blink_counter: 0,
             blocks: Vec::new(),
             scroll_offset: 0,
+            needs_redraw: true,
+            last_frame_time: std::time::Instant::now(),
         })
     }
 
@@ -146,18 +157,25 @@ impl Canvas {
         let screen_info: FbVarScreenInfo = unsafe { mem::zeroed() };
         let fb_file = File::open("/dev/null")?;
         
+        let width = 1920;
+        let height = 1080;
+        let char_width = (font::CHAR_WIDTH * 2 + 2) as usize;
+        let input_width_chars = (600.min(width - 100)) / char_width;
+
         Ok(Canvas {
             fb_file,
             screen_info,
-            framebuffer: vec![0u8; 1920 * 1080 * 4],
-            width: 1920,
-            height: 1080,
+            framebuffer: vec![0u8; width * height * 4],
+            width,
+            height,
             bytes_per_pixel: 4,
-            input_text: String::new(),
+            input_field: text_field::TextField::new(input_width_chars, 5),
             cursor_visible: true,
             cursor_blink_counter: 0,
             blocks: Vec::new(),
             scroll_offset: 0,
+            needs_redraw: true,
+            last_frame_time: std::time::Instant::now(),
         })
     }
 
@@ -394,8 +412,12 @@ impl Canvas {
 
     /// Draw SPOC input bar
     fn draw_input_bar(&mut self) {
-        // Draw input bar background at bottom
-        let bar_height = 60;
+        // Calculate dynamic height based on text field
+        let line_height = font::CHAR_HEIGHT * 2 + 4;
+        let padding = 20;
+        let text_height = self.input_field.get_height() * line_height;
+        let bar_height = text_height + padding * 2;
+        
         let bar_y = self.height - bar_height - 20;
         let bar_width = 600.min(self.width - 40);
         let bar_x = (self.width - bar_width) / 2;
@@ -423,21 +445,32 @@ impl Canvas {
             }
         }
         
-        // Draw "SPOC>" prompt
-        self.draw_text("SPOC>", bar_x + 15, bar_y + 22, 100, 200, 255, 2);
+        // Draw "SPOC>" prompt only on first line
+        self.draw_text("SPOC>", bar_x + 15, bar_y + padding, 100, 200, 255, 2);
         
-        // Draw input text
+        // Draw visible lines of input text
         let text_x = bar_x + 90;
-        let input_text = self.input_text.clone();
-        self.draw_text(&input_text, text_x, bar_y + 22, 255, 255, 255, 2);
+        let text_y_start = bar_y + padding;
         
-        // Draw cursor (vertical bar like modern inputs)
+        // Clone lines to avoid borrow checker issues
+        let visible_lines: Vec<String> = self.input_field.visible_lines().to_vec();
+        for (line_idx, line) in visible_lines.iter().enumerate() {
+            let y = text_y_start + line_idx * line_height;
+            self.draw_text(line, text_x, y, 255, 255, 255, 2);
+        }
+        
+        // Draw cursor
         if self.cursor_visible {
-            let cursor_x = text_x + input_text.len() * (font::CHAR_WIDTH * 2 + 2);
-            // Draw a thin vertical line
-            for y in 0..18 {
-                self.set_pixel(cursor_x, bar_y + 21 + y, 255, 255, 255);
-                self.set_pixel(cursor_x + 1, bar_y + 21 + y, 255, 255, 255);
+            let visible_line = self.input_field.cursor_line.saturating_sub(self.input_field.scroll_offset);
+            if visible_line < self.input_field.get_height() {
+                let cursor_x = text_x + self.input_field.cursor_col * (font::CHAR_WIDTH * 2 + 2);
+                let cursor_y = text_y_start + visible_line * line_height;
+                
+                // Draw a thin vertical line
+                for y in 0..16 {
+                    self.set_pixel(cursor_x, cursor_y + y, 255, 255, 255);
+                    self.set_pixel(cursor_x + 1, cursor_y + y, 255, 255, 255);
+                }
             }
         }
     }
@@ -477,31 +510,42 @@ impl Canvas {
             let _ = tty.flush();
         }
         
-        // Clear initial text
-        self.input_text.clear();
-        
         // Setup input handler
         let input_handler = input::InputHandler::new()?;
         
-        // Simple event loop
+        // Track frame timing
+        let target_frame_time = std::time::Duration::from_millis(8); // ~120 FPS for responsiveness
+        
+        // Force initial redraw
+        self.needs_redraw = true;
+        
+        // Main event loop
         loop {
-            // Handle input
-            if let Some(event) = input_handler.poll() {
+            let frame_start = std::time::Instant::now();
+            
+            // Handle all pending input events
+            while let Some(event) = input_handler.poll() {
+                self.needs_redraw = true;
+                self.cursor_visible = true;
+                self.cursor_blink_counter = 0;
+                
                 match event {
                     input::InputEvent::Char(ch) => {
-                        self.input_text.push(ch);
-                        self.cursor_visible = true;
-                        self.cursor_blink_counter = 0;
+                        self.input_field.insert_char(ch);
                     }
                     input::InputEvent::Backspace => {
-                        self.input_text.pop();
-                        self.cursor_visible = true;
-                        self.cursor_blink_counter = 0;
+                        self.input_field.backspace();
+                    }
+                    input::InputEvent::Delete => {
+                        self.input_field.delete();
+                    }
+                    input::InputEvent::NewLine => {
+                        self.input_field.insert_newline();
                     }
                     input::InputEvent::Enter => {
-                        if !self.input_text.is_empty() {
+                        if !self.input_field.text.is_empty() {
                             // Add user message as a block
-                            let user_text = self.input_text.clone();
+                            let user_text = self.input_field.text.clone();
                             self.add_block(user_text.clone(), BlockRole::User);
                             
                             // Query SPOC conductor
@@ -539,8 +583,34 @@ impl Canvas {
                                 }
                             }
                             
-                            self.input_text.clear();
+                            self.input_field.clear();
                         }
+                    }
+                    // Arrow key navigation
+                    input::InputEvent::Left => {
+                        self.input_field.move_left();
+                    }
+                    input::InputEvent::Right => {
+                        self.input_field.move_right();
+                    }
+                    input::InputEvent::Up => {
+                        self.input_field.move_up();
+                    }
+                    input::InputEvent::Down => {
+                        self.input_field.move_down();
+                    }
+                    // Mac shortcuts
+                    input::InputEvent::WordLeft => {
+                        self.input_field.move_word_left();
+                    }
+                    input::InputEvent::WordRight => {
+                        self.input_field.move_word_right();
+                    }
+                    input::InputEvent::LineStart | input::InputEvent::Home => {
+                        self.input_field.move_line_start();
+                    }
+                    input::InputEvent::LineEnd | input::InputEvent::End => {
+                        self.input_field.move_line_end();
                     }
                     input::InputEvent::Escape => {
                         // Restore cursor before exit
@@ -552,30 +622,40 @@ impl Canvas {
                 }
             }
             
-            // Clear to dark blue-gray background
-            self.clear(20, 25, 35);
-            
-            // Draw title at top
-            self.draw_text("CANVAS - Conversational Computer", 20, 20, 100, 150, 200, 2);
-            self.draw_text("Type and press Enter. ESC to exit.", 20, 45, 80, 120, 160, 1);
-            
-            // Update cursor blink
+            // Update cursor blink (only triggers redraw if cursor state changes)
             self.cursor_blink_counter += 1;
-            if self.cursor_blink_counter > 30 {
+            if self.cursor_blink_counter > 60 { // Blink every ~500ms at 120fps
                 self.cursor_visible = !self.cursor_visible;
                 self.cursor_blink_counter = 0;
+                self.needs_redraw = true;
             }
             
-            // Draw conversation blocks
-            self.draw_blocks();
+            // Only redraw if needed
+            if self.needs_redraw {
+                // Clear to dark blue-gray background
+                self.clear(20, 25, 35);
+                
+                // Draw title at top
+                self.draw_text("CANVAS - Conversational Computer", 20, 20, 100, 150, 200, 2);
+                self.draw_text("Type and press Enter. ESC to exit.", 20, 45, 80, 120, 160, 1);
+                
+                // Draw conversation blocks
+                self.draw_blocks();
+                
+                // Draw SPOC interface
+                self.draw_input_bar();
+                
+                // Present frame
+                self.present();
+                
+                self.needs_redraw = false;
+            }
             
-            // Draw SPOC interface
-            self.draw_input_bar();
-            
-            // Present frame
-            self.present();
-            
-            std::thread::sleep(std::time::Duration::from_millis(16)); // 60 FPS
+            // Sleep only if we're ahead of schedule
+            let frame_time = frame_start.elapsed();
+            if frame_time < target_frame_time {
+                std::thread::sleep(target_frame_time - frame_time);
+            }
         }
         
         Ok(())
