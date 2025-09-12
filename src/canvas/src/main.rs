@@ -14,6 +14,23 @@ use std::sync::Arc;
 
 const FB_PATH: &str = "/dev/fb0";
 
+/// Role of conversation block
+#[derive(Clone, Debug)]
+enum BlockRole {
+    User,
+    Assistant,
+    System,
+}
+
+/// Conversation block
+#[derive(Clone, Debug)]
+struct Block {
+    text: String,
+    role: BlockRole,
+    timestamp: std::time::SystemTime,
+    height: usize,  // Calculated pixel height
+}
+
 /// Framebuffer information structure
 #[repr(C)]
 struct FbVarScreenInfo {
@@ -66,6 +83,8 @@ struct Canvas {
     input_text: String,
     cursor_visible: bool,
     cursor_blink_counter: u32,
+    blocks: Vec<Block>,
+    scroll_offset: usize,
 }
 
 impl Canvas {
@@ -111,6 +130,8 @@ impl Canvas {
             input_text: String::new(),
             cursor_visible: true,
             cursor_blink_counter: 0,
+            blocks: Vec::new(),
+            scroll_offset: 0,
         })
     }
 
@@ -132,6 +153,8 @@ impl Canvas {
             input_text: String::new(),
             cursor_visible: true,
             cursor_blink_counter: 0,
+            blocks: Vec::new(),
+            scroll_offset: 0,
         })
     }
 
@@ -203,6 +226,141 @@ impl Canvas {
         for ch in text.chars() {
             self.draw_char(ch, current_x, y, r, g, b, scale);
             current_x += font::CHAR_WIDTH * scale + scale; // Add spacing
+        }
+    }
+
+    /// Draw text with word wrapping
+    fn draw_text_wrapped(&mut self, text: &str, x: usize, y: usize, max_width: usize, r: u8, g: u8, b: u8, scale: usize) -> usize {
+        let char_width = font::CHAR_WIDTH * scale + scale;
+        let line_height = font::CHAR_HEIGHT * scale + 4;
+        let max_chars = max_width / char_width;
+        
+        let mut lines = Vec::new();
+        let mut current_line = String::new();
+        
+        for word in text.split_whitespace() {
+            if current_line.is_empty() {
+                current_line = word.to_string();
+            } else if current_line.len() + 1 + word.len() <= max_chars {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                lines.push(current_line);
+                current_line = word.to_string();
+            }
+        }
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+        
+        for (i, line) in lines.iter().enumerate() {
+            self.draw_text(line, x, y + i * line_height, r, g, b, scale);
+        }
+        
+        lines.len() * line_height
+    }
+
+    /// Calculate height needed for wrapped text
+    fn calculate_text_height(&self, text: &str, max_width: usize, scale: usize) -> usize {
+        let char_width = font::CHAR_WIDTH * scale + scale;
+        let line_height = font::CHAR_HEIGHT * scale + 4;
+        let max_chars = max_width / char_width;
+        
+        let mut lines = 0;
+        let mut current_line_len = 0;
+        
+        for word in text.split_whitespace() {
+            if current_line_len == 0 {
+                current_line_len = word.len();
+                lines = 1;
+            } else if current_line_len + 1 + word.len() <= max_chars {
+                current_line_len += 1 + word.len();
+            } else {
+                lines += 1;
+                current_line_len = word.len();
+            }
+        }
+        
+        lines * line_height
+    }
+
+    /// Add a new block to conversation
+    fn add_block(&mut self, text: String, role: BlockRole) {
+        let max_width = 600.min(self.width - 80) - 20; // Block width minus padding
+        let height = self.calculate_text_height(&text, max_width, 2) + 20; // Add padding
+        
+        let block = Block {
+            text,
+            role,
+            timestamp: std::time::SystemTime::now(),
+            height,
+        };
+        
+        self.blocks.push(block);
+        self.scroll_offset = 0; // Auto-scroll to bottom
+    }
+
+    /// Draw conversation blocks
+    fn draw_blocks(&mut self) {
+        let block_width = 600.min(self.width - 40);
+        let block_x = (self.width - block_width) / 2;
+        let input_bar_y = self.height - 80; // Leave space for input bar
+        
+        let mut current_y = input_bar_y - 20;
+        
+        // Collect blocks to draw (to avoid borrow checker issues)
+        let blocks_to_draw: Vec<_> = self.blocks.iter()
+            .rev()
+            .skip(self.scroll_offset)
+            .cloned()
+            .collect();
+        
+        // Draw blocks from bottom up (newest first)
+        for block in blocks_to_draw.iter() {
+            if current_y < block.height + 100 {
+                break; // Stop if we run out of space at top
+            }
+            
+            current_y -= block.height + 5; // Add margin between blocks
+            
+            // Choose background color based on role
+            let (bg_r, bg_g, bg_b) = match block.role {
+                BlockRole::User => (40, 45, 55),      // Slightly blue
+                BlockRole::Assistant => (35, 45, 40),  // Slightly green
+                BlockRole::System => (35, 35, 40),     // Gray
+            };
+            
+            // Draw block background
+            self.draw_rect(block_x, current_y, block_width, block.height, bg_r, bg_g, bg_b);
+            
+            // Draw block border
+            for i in 0..1 {
+                for x in block_x..block_x + block_width {
+                    self.set_pixel(x, current_y + i, 60, 70, 80);
+                    self.set_pixel(x, current_y + block.height - i - 1, 60, 70, 80);
+                }
+                for y in current_y..current_y + block.height {
+                    self.set_pixel(block_x + i, y, 60, 70, 80);
+                    self.set_pixel(block_x + block_width - i - 1, y, 60, 70, 80);
+                }
+            }
+            
+            // Draw role label
+            let role_text = match block.role {
+                BlockRole::User => "You",
+                BlockRole::Assistant => "SPOC",
+                BlockRole::System => "System",
+            };
+            self.draw_text(role_text, block_x + 10, current_y + 5, 150, 170, 190, 1);
+            
+            // Draw text content
+            self.draw_text_wrapped(&block.text, block_x + 10, current_y + 20, block_width - 20, 220, 230, 240, 2);
+        }
+        
+        // Draw scroll indicator if needed
+        if self.scroll_offset > 0 || self.blocks.len() > 5 {
+            self.draw_text(&format!("[{}/{}]", self.scroll_offset + 1, self.blocks.len()), 
+                          self.width - 100, 20, 100, 120, 140, 1);
         }
     }
 
@@ -313,8 +471,28 @@ impl Canvas {
                         self.cursor_blink_counter = 0;
                     }
                     input::InputEvent::Enter => {
-                        // For now, just clear the input
-                        self.input_text.clear();
+                        if !self.input_text.is_empty() {
+                            // Add user message as a block
+                            let user_text = self.input_text.clone();
+                            self.add_block(user_text.clone(), BlockRole::User);
+                            
+                            // Basic conductor response for testing
+                            let response = if user_text.to_lowercase().contains("hello") {
+                                "Hello! I'm SPOC, your conversational computer conductor. How can I help you today?".to_string()
+                            } else if user_text.to_lowercase().contains("help") {
+                                "I can help you with various tasks. Try asking me questions or giving me commands.".to_string()
+                            } else if user_text.to_lowercase().contains("time") {
+                                format!("The current system time is: {:?}", std::time::SystemTime::now())
+                            } else if user_text.to_lowercase().contains("clear") {
+                                self.blocks.clear();
+                                "Conversation cleared.".to_string()
+                            } else {
+                                format!("You said: '{}'. I'm a basic conductor for now, more capabilities coming soon!", user_text)
+                            };
+                            
+                            self.add_block(response, BlockRole::Assistant);
+                            self.input_text.clear();
+                        }
                     }
                     input::InputEvent::Escape => {
                         // Restore cursor before exit
@@ -339,6 +517,9 @@ impl Canvas {
                 self.cursor_visible = !self.cursor_visible;
                 self.cursor_blink_counter = 0;
             }
+            
+            // Draw conversation blocks
+            self.draw_blocks();
             
             // Draw SPOC interface
             self.draw_input_bar();
