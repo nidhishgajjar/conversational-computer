@@ -72,12 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create GBM allocator for managing GPU buffers
     // RENDERING flag: buffer can be rendered to
-    // SCANOUT flag: buffer can be displayed on screen
-    let allocator = GbmAllocator::new(
+    // SCANOUT flag: buffer can be displayed on screen (required for DRM)
+    let mut allocator = GbmAllocator::new(
         gbm.clone(),
         GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
     );
-    info!("✓ GBM allocator created");
+    info!("✓ GBM allocator created (RENDERING | SCANOUT)");
 
     // Display detection and setup
     let res = drm_fd.resource_handles()?;
@@ -133,46 +133,149 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let (mut drm_surface, _connector) = surface
+    let (drm_surface, _connector) = surface
         .ok_or_else(|| "No suitable display found")?;
     let display_mode = mode.ok_or_else(|| "No display mode found")?;
 
     info!("");
     info!("Starting minimal render loop - clearing with solid color");
+    info!("Display mode: {}x{} @ {}Hz", display_mode.size().0, display_mode.size().1, display_mode.vrefresh());
     info!("Press Ctrl+C to exit");
 
+    // Try to create a buffer once to test if it works
+    let size = Size::from((display_mode.size().0 as i32, display_mode.size().1 as i32));
+
+    // First, let's try to understand what formats are supported
+    info!("Attempting to create buffer with size: {}x{}", size.w, size.h);
+
+    // Try different formats if XRGB8888 doesn't work
+    let test_formats = [
+        Fourcc::Xrgb8888,
+        Fourcc::Argb8888,
+        Fourcc::Rgb565,
+        Fourcc::Xbgr8888,
+    ];
+
+    // Import DrmModifier for LINEAR
+    use smithay::reexports::gbm::Modifier;
+
+    let mut working_format = None;
+    for format in &test_formats {
+        // First try with no modifiers (implicit modifier)
+        match allocator.create_buffer(size.w as u32, size.h as u32, *format, &[]) {
+            Ok(buffer) => {
+                info!("✓ Successfully created buffer with format: {:?} (no modifiers)", format);
+                working_format = Some((*format, None));
+                // Clean up test buffer
+                drop(buffer);
+                break;
+            }
+            Err(e) => {
+                info!("  Failed with format {:?} (no modifiers): {:?}", format, e);
+
+                // Try with LINEAR modifier for better compatibility
+                match allocator.create_buffer(size.w as u32, size.h as u32, *format, &[Modifier::Linear]) {
+                    Ok(buffer) => {
+                        info!("✓ Successfully created buffer with format: {:?} (LINEAR modifier)", format);
+                        working_format = Some((*format, Some(Modifier::Linear)));
+                        // Clean up test buffer
+                        drop(buffer);
+                        break;
+                    }
+                    Err(e) => {
+                        info!("  Failed with format {:?} (LINEAR modifier): {:?}", format, e);
+                    }
+                }
+            }
+        }
+    }
+
+    let (format, modifier) = working_format.ok_or("No supported buffer format found")?;
+    info!("Using format: {:?} with modifier: {:?} for rendering", format, modifier);
+
+    // Create two buffers for double buffering
+    info!("Creating double buffers for page flipping...");
+
+    let create_buffer = |allocator: &mut GbmAllocator<_>| -> Result<_, Box<dyn std::error::Error>> {
+        if let Some(mod_value) = modifier {
+            allocator
+                .create_buffer(size.w as u32, size.h as u32, format, &[mod_value])
+                .map_err(|e| format!("Failed to create buffer with modifier: {:?}", e).into())
+        } else {
+            allocator
+                .create_buffer(size.w as u32, size.h as u32, format, &[])
+                .map_err(|e| format!("Failed to create buffer: {:?}", e).into())
+        }
+    };
+
+    let buffer1 = create_buffer(&mut allocator)?;
+    let buffer2 = create_buffer(&mut allocator)?;
+
+    // Create framebuffers for both buffers
+    use smithay::reexports::drm::control::FbCmd2Flags;
+    let fb1 = drm_fd.add_planar_framebuffer(&buffer1, FbCmd2Flags::empty())
+        .map_err(|e| format!("Failed to create framebuffer 1: {:?}", e))?;
+    let fb2 = drm_fd.add_planar_framebuffer(&buffer2, FbCmd2Flags::empty())
+        .map_err(|e| format!("Failed to create framebuffer 2: {:?}", e))?;
+
+    info!("✓ Double buffers created successfully");
+
+    let buffers = [(buffer1, fb1), (buffer2, fb2)];
+    let mut current_buffer = 0;
+
     // Simple render loop - creates frames and displays them
+    let mut frame_count = 0u64;
     loop {
-        // Create a GPU buffer for this frame
-        // Size matches display resolution, format is XRGB (no alpha)
-        let size = Size::from((display_mode.size().0 as i32, display_mode.size().1 as i32));
-        let buffer = allocator
-            .create_buffer(size.w as u32, size.h as u32, Fourcc::Xrgb8888, &[])
-            .map_err(|e| format!("Failed to create buffer: {:?}", e))?;
+        frame_count += 1;
 
-        // Export the GbmBuffer as a Dmabuf for rendering
-        // Dmabuf is a cross-device buffer sharing mechanism
-        let mut dmabuf: Dmabuf = buffer.export()
-            .map_err(|e| format!("Failed to export buffer: {:?}", e))?;
+        // Get current buffer and framebuffer
+        let (buffer, fb_handle) = &buffers[current_buffer];
 
-        // Bind the dmabuf as render target for the renderer
-        let mut target = renderer.bind(&mut dmabuf)
-            .map_err(|e| format!("Failed to bind dmabuf: {:?}", e))?;
+        // Try direct rendering to the GBM buffer instead of exporting to Dmabuf
+        // This should be more direct and work better with the display
 
-        // Start a new frame for rendering operations
-        // The render method needs a mutable reference to the target
-        {
-            let mut frame = renderer.render(&mut target, size, Transform::Normal)
-                .map_err(|e| format!("Failed to start frame: {:?}", e))?;
+        // Bind the buffer directly as render target
+        let render_result = renderer.bind(buffer);
 
-            // Clear the entire frame with dark gray color (R=0.15, G=0.15, B=0.15)
-            // Color needs to be converted to Color32F type
-            frame.clear([0.15, 0.15, 0.15, 1.0].into(), &[]);
+        match render_result {
+            Ok(mut target) => {
+                // Direct rendering to GBM buffer succeeded
+                let mut frame = renderer.render(&mut target, size, Transform::Normal)
+                    .map_err(|e| format!("Failed to start frame: {:?}", e))?;
 
-            // Finish the frame and submit rendering commands
-            frame.finish()
-                .map_err(|e| format!("Failed to finish frame: {:?}", e))?;
-        } // Frame is dropped here, releasing the render target
+                // Use a bright blue color to make it obvious
+                let blue_value = 0.5 + (frame_count as f32 * 0.02).sin().abs() * 0.5;
+                frame.clear([0.0, 0.2, blue_value, 1.0].into(), &[])
+                    .map_err(|e| format!("Failed to clear frame: {:?}", e))?;
+
+                let sync = frame.finish()
+                    .map_err(|e| format!("Failed to finish frame: {:?}", e))?;
+
+                // Wait for rendering to complete before page flip
+                sync.wait();
+            }
+            Err(_) => {
+                // Fallback: Export to Dmabuf if direct binding fails
+                let mut dmabuf: Dmabuf = buffer.export()
+                    .map_err(|e| format!("Failed to export buffer: {:?}", e))?;
+
+                let mut target = renderer.bind(&mut dmabuf)
+                    .map_err(|e| format!("Failed to bind dmabuf: {:?}", e))?;
+
+                let mut frame = renderer.render(&mut target, size, Transform::Normal)
+                    .map_err(|e| format!("Failed to start frame: {:?}", e))?;
+
+                // Use red color for dmabuf path so we know which path is taken
+                frame.clear([0.5, 0.0, 0.0, 1.0].into(), &[])
+                    .map_err(|e| format!("Failed to clear frame: {:?}", e))?;
+
+                let sync = frame.finish()
+                    .map_err(|e| format!("Failed to finish frame: {:?}", e))?;
+
+                // Wait for rendering to complete
+                sync.wait();
+            }
+        }
 
         // Get the primary plane for this CRTC
         // Planes are hardware layers that can display buffers
@@ -189,12 +292,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Page flip - atomically swap the displayed buffer
         // This presents our rendered frame on screen without tearing
-        // The page_flip API expects PlaneState objects
-        use smithay::backend::drm::PlaneState;
-        match drm_surface.page_flip([PlaneState::from_buffer(&buffer, plane_claim, (0, 0).into())].into_iter(), true) {
-            Ok(_) => {},
+        use smithay::backend::drm::{PlaneState, PlaneConfig};
+        use smithay::utils::Rectangle;
+
+        // Create PlaneState with proper configuration
+        let plane_state = PlaneState {
+            handle: plane_claim.plane(),
+            config: Some(PlaneConfig {
+                src: Rectangle::from_size((size.w as f64, size.h as f64).into()),
+                dst: Rectangle::from_size((size.w, size.h).into()),
+                transform: Transform::Normal,
+                alpha: 1.0,
+                damage_clips: None,
+                fb: *fb_handle,  // Use pre-created framebuffer
+                fence: None,
+            }),
+        };
+
+        match drm_surface.page_flip([plane_state].into_iter(), true) {
+            Ok(_) => {
+                // Successfully flipped - frame is now displayed
+                if frame_count % 60 == 0 {
+                    info!("Frame {}: Page flip successful", frame_count);
+                }
+
+                // Switch to the other buffer for next frame
+                current_buffer = (current_buffer + 1) % 2;
+            },
             Err(e) => {
-                info!("Page flip error: {:?}", e);
+                info!("Frame {}: Page flip error: {:?}", frame_count, e);
+                // Don't switch buffers on error, try same buffer again
             }
         }
 
