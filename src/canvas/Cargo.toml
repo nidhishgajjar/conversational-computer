@@ -5,9 +5,6 @@ edition = "2021"
 authors = ["nidhishgajjar <hacker@scigic.com>"]
 description = "Canvas - SPOC Interface for Conversational Computer"
 
-[[bin]]
-name = "test-render"
-path = "src/test_render.rs"
 
 [dependencies]
 # Core dependencies
