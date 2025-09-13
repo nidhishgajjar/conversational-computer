@@ -13,13 +13,15 @@ use smithay::{
             Fourcc,
         },
         drm::{
-            compositor::DrmCompositor,
+            compositor::{DrmCompositor, FrameFlags},
             exporter::gbm::GbmFramebufferExporter,
             DrmDevice, DrmDeviceFd, DrmNode,
         },
         renderer::{
             gles::GlesRenderer,
-            Color32F, ImportDma,
+            element::{Element, Id, RenderElement},
+            utils::CommitCounter,
+            Color32F, ImportDma, Renderer,
         },
         session::{
             libseat::LibSeatSession,
@@ -29,11 +31,11 @@ use smithay::{
     desktop::utils::OutputPresentationFeedback,
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
-        calloop::EventLoop,
+        calloop::{self, EventLoop},
         drm::control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
         rustix::fs::OFlags,
     },
-    utils::DeviceFd,
+    utils::{DeviceFd, Rectangle, Scale},
 };
 
 use tracing::{error, info};
@@ -54,6 +56,54 @@ const SUPPORTED_FORMATS: &[Fourcc] = &[
 
 // Clear color
 const CLEAR_COLOR: Color32F = Color32F::new(0.1, 0.1, 0.2, 1.0);
+
+// Simple render element for testing
+#[derive(Debug, Clone)]
+struct TestElement {
+    id: Id,
+    commit: CommitCounter,
+}
+
+impl TestElement {
+    fn new() -> Self {
+        Self {
+            id: Id::new(),
+            commit: CommitCounter::default(),
+        }
+    }
+}
+
+impl Element for TestElement {
+    fn id(&self) -> &Id {
+        &self.id
+    }
+    
+    fn current_commit(&self) -> CommitCounter {
+        self.commit
+    }
+    
+    fn src(&self) -> Rectangle<f64, smithay::utils::Buffer> {
+        Rectangle::from_size((100.0, 100.0).into())
+    }
+    
+    fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, smithay::utils::Physical> {
+        Rectangle::from_size((100, 100).into())
+    }
+}
+
+impl RenderElement<GlesRenderer> for TestElement {
+    fn draw(
+        &self,
+        _frame: &mut <GlesRenderer as smithay::backend::renderer::RendererSuper>::Frame<'_, '_>,
+        _src: Rectangle<f64, smithay::utils::Buffer>,
+        _dst: Rectangle<i32, smithay::utils::Physical>,
+        _damage: &[Rectangle<i32, smithay::utils::Physical>],
+        _opaque_regions: &[Rectangle<i32, smithay::utils::Physical>],
+    ) -> Result<(), <GlesRenderer as smithay::backend::renderer::RendererSuper>::Error> {
+        // For now, just clear - we'll add actual rendering later
+        Ok(())
+    }
+}
 
 struct SurfaceData {
     compositor: GbmDrmCompositor,
@@ -254,6 +304,48 @@ impl CanvasState {
         
         info!("Surface created for CRTC {:?}", crtc);
     }
+    
+    fn render(&mut self) {
+        // Render to all surfaces
+        for backend in self.backends.values_mut() {
+            // Collect CRTCs to render (to avoid borrow issues)
+            let crtcs: Vec<_> = backend.surfaces.keys().cloned().collect();
+            
+            for crtc in crtcs {
+                if let Some(surface) = backend.surfaces.get_mut(&crtc) {
+                    // Create test elements - in the future this will be conversation blocks
+                    let elements = vec![TestElement::new()];
+                    
+                    // Render frame
+                    match surface.compositor.render_frame(
+                        &mut backend.renderer,
+                        &elements,
+                        CLEAR_COLOR,
+                        FrameFlags::empty(),
+                    ) {
+                        Ok(result) => {
+                            if !result.is_empty {
+                                // Queue frame for presentation
+                                if let Err(e) = surface.compositor.queue_frame(None) {
+                                    error!("Failed to queue frame: {:?}", e);
+                                    continue;
+                                }
+                                
+                                // Mark frame as submitted
+                                // In a real implementation, we'd wait for VBlank event
+                                if let Err(e) = surface.compositor.frame_submitted() {
+                                    error!("Failed to mark frame as submitted: {:?}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to render frame: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -270,6 +362,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Create event loop
     let mut event_loop = EventLoop::try_new()?;
+    let handle = event_loop.handle();
     
     // Initialize session
     let (session, _notifier) = LibSeatSession::new()?;
@@ -283,6 +376,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(path) = gpu.dev_path() {
         state.device_added(gpu, &path)?;
     }
+    
+    // Set up render timer (60 FPS)
+    let _timer = handle.insert_source(
+        calloop::timer::Timer::from_duration(std::time::Duration::from_millis(16)),
+        |_, _, state: &mut CanvasState| {
+            state.render();
+            calloop::timer::TimeoutAction::ToDuration(std::time::Duration::from_millis(16))
+        },
+    )?;
     
     info!("Canvas DRM ready");
     info!("We own the display");
