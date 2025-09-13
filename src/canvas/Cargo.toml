@@ -13,6 +13,14 @@ path = "src/main_smithay.rs"
 name = "canvas-drm"
 path = "src/main_drm.rs"
 
+[[bin]]
+name = "canvas-drm-simple"
+path = "src/main_drm_simple.rs"
+
+[[bin]]
+name = "canvas-drm-direct"
+path = "src/main_drm_direct.rs"
+
 [dependencies]
 # Core dependencies
 libc = "0.2"
