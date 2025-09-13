@@ -3,23 +3,11 @@ name = "canvas"
 version = "0.1.0"
 edition = "2021"
 authors = ["nidhishgajjar <hacker@scigic.com>"]
-description = "Canvas - Minimal Wayland compositor for Conversational Computer"
+description = "Canvas - SPOC Interface for Conversational Computer"
 
 [[bin]]
-name = "canvas-smithay"
-path = "src/main_smithay.rs"
-
-[[bin]]
-name = "canvas-drm"
-path = "src/main_drm.rs"
-
-[[bin]]
-name = "canvas-drm-simple"
-path = "src/main_drm_simple.rs"
-
-[[bin]]
-name = "canvas-drm-direct"
-path = "src/main_drm_direct.rs"
+name = "test-render"
+path = "src/test_render.rs"
 
 [dependencies]
 # Core dependencies
